@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/lineus/go-loadaws"
-	"github.com/lineus/go-notify"
+	awsNotify "github.com/lineus/go-notify"
 	"github.com/lineus/go-sqlitelogs"
 	"github.com/lineus/go-sumpmon"
 )
 
 const live bool = false
+
+var config loadaws.Config
 
 func connect(logger sqlitelogs.SqliteLogger) error {
 	var d net.Dialer
@@ -72,56 +74,44 @@ func main() {
 		log.Fatal("Failed To Initialize Logger: ", err)
 	}
 
-	config, err := loadaws.FromJSON()
+	config, err = loadaws.FromJSON()
 	if err != nil {
 		log.Fatal("loadAWSEnv Fail: ", err)
 	}
 
 	if live {
-		defer notify.Send(config.AWS.SNS.ARN, "SumpMonitor Off")
+		defer awsNotify.Send(config.AWS.SNS.ARN, "SumpMonitor Off")
 	}
 
-	// TODO refactor if-live into a func
 	go func() {
 		for {
 			if !logger.Alive() && runs > 5 {
-				if live {
-					notify.Send(config.AWS.SNS.ARN, "Sump Logger Not Alive")
-					os.Exit(1)
-				} else {
-					fmt.Println("logger not alive")
-					os.Exit(1)
-				}
+				notify("Sump Logger Not Alive", true)
 			}
 
 			if !goodPongLast60Mins(logger) && runs > 5 {
-				if live {
-					notify.Send(config.AWS.SNS.ARN, "No Good Pongs For 1 Hour")
-					os.Exit(1)
-				} else {
-					fmt.Println("no good pongs for 1 hr")
-					os.Exit(1)
-				}
+				notify("No Good Pongs For 1 Hour", true)
 			}
 			err := connect(logger)
 			if err != nil {
-				if live {
-					notify.Send(config.AWS.SNS.ARN, "Cant Connect To Sump Monitor")
-				} else {
-					fmt.Println("Cant Connect To Sump Monitor")
-				}
+				notify("Cant Connect To Sump Monitor", true)
 			}
 			runs++
 			time.Sleep(10 * time.Second)
 		}
 	}()
 	<-sigs
+	notify("You Haved Murdered My Monitoring!", true)
+
+}
+
+func notify(s string, e bool) {
 	if live {
-		notify.Send(config.AWS.SNS.ARN, "You Haved Murdered My Monitoring!")
-		os.Exit(1)
+		awsNotify.Send(config.AWS.SNS.ARN, s)
 	} else {
-		fmt.Println("You have Murdered my Montitoring!")
+		fmt.Println(s)
+	}
+	if e {
 		os.Exit(1)
 	}
-
 }
